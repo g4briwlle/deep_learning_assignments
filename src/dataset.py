@@ -1,15 +1,11 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.ndimage import label
 import cv2 # uv add opencv-python
 from skimage.segmentation import watershed
 
 import torch
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-import torch.optim as optim
-import torch.nn as nn
-import torchvision.models
+
 
 class SyntheticEllipseDataset(Dataset):
   def __init__(self, n_samples=500, size=128):
@@ -86,7 +82,7 @@ class SyntheticEllipseDatasetTrilhaA(Dataset):
 
         # 3 class semantic mask
         # 0 = bg, 1 = inside, 2 = border
-        semantic_mask = np.zeros((self.size, self.size), dtype=np.int64) # CE Loss demands int64 (Long)
+        semantic_mask = np.zeros((self.size, self.size), dtype=np.int32)
 
         n_ellipses = np.random.randint(5, 21)
         centers = []

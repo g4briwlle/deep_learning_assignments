@@ -1,16 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import label
-import cv2 # uv add opencv-python
 from skimage.segmentation import watershed
 
-import torch
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-import torch.optim as optim
-import torch.nn as nn
-import torchvision.models
+from src.metrics import *
 
+import torch
 
 def extract_instances_naive(logits_tensor, threshold = 0.5):
   """ Transform one channel outpuf of net into instance mask with unique ids

@@ -1,15 +1,9 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from scipy.ndimage import label
-import cv2 # uv add opencv-python
 from skimage.segmentation import watershed
 
 import torch
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-import torch.optim as optim
 import torch.nn as nn
-import torchvision.models
+from torchvision import models
 
 
 class DoubleConv(nn.Module):
