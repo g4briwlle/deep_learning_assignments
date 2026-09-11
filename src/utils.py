@@ -152,3 +152,49 @@ class FocalLossMulticlass(nn.Module):
             return focal_loss.sum()
         else:
             return focal_loss
+
+
+
+def mosaic2x2(dataloader):
+    """
+    create mosaic 2x2 (256x256) with unique ids
+    """
+    # get image and mask from another batch in loader
+    images, masks = next(iter(dataloader))
+
+    # separates 4 first images and their instance masks
+    img1, img2, img3, img4 = images[0], images[1], images[2], images[3]
+    mask1, mask2, mask3, mask4 = masks[0], masks[1], masks[2], masks[3]
+    
+    # mask 1 top left: intact, get its biggest id
+    max_id_1 = mask1.max().item()
+
+    # mask 2 top right: add max_id_1 only where it isnt background
+    mask2_offset = mask2.clone()
+    mask2_offset[mask2 > 0] += max_id_1
+    max_id_2 = mask2_offset.max().item() if mask2_offset.max().item() > 0 else max_id_1
+
+    # mask 3 bottom left: add max_id_2
+    mask3_offset = mask3.clone()
+    mask3_offset[mask3 > 0] += max_id_2
+    max_id_3 = mask3_offset.max().item() if mask3_offset.max().item() > 0 else max_id_2
+
+    # mask 4 bottom right: add max_id_3
+    # Máscara 4 (Fundo Direita): Adicionamos o max_id_3
+    mask4_offset = mask4.clone()
+    mask4_offset[mask4 > 0] += max_id_3
+    
+
+    # sewing images 
+    top_img = torch.cat((img1, img2), dim=2)    
+    bottom_img = torch.cat((img3, img4), dim=2)
+    mosaic_img = torch.cat((top_img, bottom_img), dim=1) #  [3, 256, 256]
+
+    # sewing corrected images
+    top_mask = torch.cat((mask1, mask2_offset), dim=1)
+    bottom_mask = torch.cat((mask3_offset, mask4_offset), dim=1)
+    mosaic_mask = torch.cat((top_mask, bottom_mask), dim=0) #  [256, 256]
+
+    # add back batch dim to pass to the net
+    # [3, 256, 256] -> [1, 3, 256, 256]
+    return mosaic_img.unsqueeze(0), mosaic_mask
