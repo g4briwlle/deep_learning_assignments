@@ -11,25 +11,25 @@ import torch.nn as nn
 import torchvision.models
 import torch.nn.functional as F
 
-from metrics import *
+from .metrics import *
 
 import torch
 
 def extract_instances_naive(logits_tensor, threshold = 0.5):
-  """ Transform one channel outpuf of net into instance mask with unique ids
-  logits_tensor: model output in [1, H, W]
-  threshold: probability cut-off
-  """
-  # apply sigmoid in logit to go from (-inf, +inf) to (0, 1)
-  probs = torch.sigmoid(logits_tensor)
+    """ Transform one channel outpuf of net into instance mask with unique ids
+    logits_tensor: model output in [1, H, W]
+    threshold: probability cut-off
+    """
+    # apply sigmoid in logit to go from (-inf, +inf) to (0, 1)
+    probs = torch.sigmoid(logits_tensor)
 
-  # apply threshold to get binary mask
-  binary_mask = (probs > threshold).cpu().numpy().squeeze()
+    # apply threshold to get binary mask
+    binary_mask = (probs > threshold).cpu().numpy().squeeze()
 
-  # connected components: gives each ellipse an id
-  instance_mask, n_objects = label(binary_mask)
+    # connected components: gives each ellipse an id
+    instance_mask, n_objects = label(binary_mask)
 
-  return instance_mask, n_objects
+    return instance_mask, n_objects
 
 
 
