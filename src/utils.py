@@ -10,6 +10,9 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import torch.nn as nn
 import torchvision.models
+import torch.nn.functional as F
+
+from metrics import *
 
 
 def extract_instances_naive(logits_tensor, threshold = 0.5):
@@ -114,3 +117,38 @@ def extract_instances_watershed(logits_tensor):
     instance_mask = watershed(elevation_map, markers, mask=foreground)
 
     return instance_mask
+
+
+class FocalLossMulticlasse(nn.Module):
+    """
+    Focal Loss for 3 classes (bg, inside, border)
+    CE standard -> CE weights -> Focal standard -> Focal weights
+    """
+    def __init__(self, alpha=None, gamma=0.0, reduction='mean'):
+        super(FocalLossMulticlasse, self).__init__()
+        
+        # alpha: classes weights
+        self.alpha = alpha 
+        
+        # gamma: ???
+        self.gamma = gamma 
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # Calculates CE standard or with weights
+        # reduction=none gives each separate pixel error
+        ce_loss = F.cross_entropy(inputs, targets, weight=self.alpha, reduction='none')
+
+        # get right class probs
+        pt = torch.exp(-ce_loss)
+
+        # aplly focal loss (1 - pt)^gamma * CE
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+        
+        # mean of every pixel in the image
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
