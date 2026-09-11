@@ -1,3 +1,5 @@
+from typing import Any
+
 from scipy.ndimage import label
 from skimage.segmentation import watershed
 
@@ -25,15 +27,16 @@ class DoubleConv(nn.Module):
         return self.net(x)
 
 
-class ResUNet34(nn.Module):
-    def __init__(self, out_channels=1):
+class ResNetEncoder(nn.Module):
+    """
+    Reusable Residual encoder to attach to different decoders.
+    """
+    def __init__(self):
         super().__init__()
 
         # pre trained encoder
         # ResNet34 pre trained from imagenet
         resnet = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
-
-        # separating and getting the different parts of the net to use as skip connections:
 
         # stem: entry Conv, BatchNorm e ReLU (reduces into H/2)
         self.stem = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)
@@ -45,6 +48,26 @@ class ResUNet34(nn.Module):
         self.layer2 = resnet.layer2
         self.layer3 = resnet.layer3
         self.layer4 = resnet.layer4 # Bottleneck
+
+class ResUNet34(ResNetEncoder):
+    """
+    Uses the skip connections to implement the UNet model in a Residual Network,
+    creating a ResUNet.
+    """
+
+    def __init__(self, out_channels: int = 1):
+        """
+        Initializes the ResUNet model, using the ResNet encoder and adding
+        the skip connections.
+
+        Args:
+            out_channels (int): Number of output channels for prediction. Default is 1.
+        """
+
+        # uses the ResNetEconder __init__ implemented earlier
+        super().__init__()
+
+        # separating and getting the different parts of the net to use as skip connections:
 
         # decoder
         # Up 1: from H/32 (512 channels) to H/16
@@ -79,6 +102,7 @@ class ResUNet34(nn.Module):
         skip4 = self.layer3(skip3)      # channels 256, size  8x8
         bottleneck = self.layer4(skip4) # channels 512, size  4x4
 
+        # Attaching "UNet" decoder, using skip connections
         # DECODER WITH SKIP CONNECTIONS
         x = self.up1(bottleneck)
         x = torch.cat([x, skip4], dim=1)
