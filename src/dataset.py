@@ -64,7 +64,7 @@ class SyntheticEllipseDataset(Dataset):
     return img_tensor, mask_tensor
 
 
-class SyntheticEllipseDatasetTrilhaA(Dataset):
+class SyntheticEllipseDatasetTrackA(Dataset):
     def __init__(self, n_samples=500, size=128):
         self.n_samples = n_samples
         self.size = size
