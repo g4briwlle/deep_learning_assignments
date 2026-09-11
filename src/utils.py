@@ -119,13 +119,13 @@ def extract_instances_watershed(logits_tensor):
     return instance_mask
 
 
-class FocalLossMulticlasse(nn.Module):
+class FocalLossMulticlass(nn.Module):
     """
     Focal Loss for 3 classes (bg, inside, border)
     CE standard -> CE weights -> Focal standard -> Focal weights
     """
     def __init__(self, alpha=None, gamma=0.0, reduction='mean'):
-        super(FocalLossMulticlasse, self).__init__()
+        super(FocalLossMulticlass, self).__init__()
         
         # alpha: classes weights
         self.alpha = alpha 
