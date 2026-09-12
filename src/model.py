@@ -1,3 +1,6 @@
+"""Modulo of model classes
+"""
+
 from typing import Any
 
 from scipy.ndimage import label

@@ -1,3 +1,6 @@
+"""Modulo of util functions
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import label
@@ -33,7 +36,7 @@ def extract_instances_naive(logits_tensor, threshold = 0.5):
 
 
 
-def plot_fracasso_densidade(model, val_loader, device):
+def plot_density_failure(model, val_loader, device):
     model.eval()
 
     # list to store tuples ( qtd_real_objs, count_error)
