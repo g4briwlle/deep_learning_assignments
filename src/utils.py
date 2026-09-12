@@ -7,12 +7,9 @@ from scipy.ndimage import label
 from skimage.segmentation import watershed
 
 import torch
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
-import torch.optim as optim
 import torch.nn as nn
-import torchvision.models
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 
 from .metrics import *
 
@@ -295,3 +292,100 @@ def tiles_inference_corrected(model, huge_img, cuttting_points):
             final_corrected_mask[y:y+128, x:x+128][foreground] = patch_insts_offset[foreground]
             
     return final_corrected_mask
+
+
+
+def corrupt_image(images, type, intensity):
+    """
+    apply corruption directly in the batch image tensor, normalized in interval [0,1]
+    """
+    if intensity == 0:
+        return images # 0 is the baseline
+        
+    if type == 'blur':
+        # unfocus levels: kernel and sigma go up with intensity
+        sigmas = [1.0, 2.0, 4.0]
+        kernels = [3, 5, 9] 
+        idx = intensity - 1
+        # apply gaussian blur
+        return TF.gaussian_blur(images, kernel_size=[kernels[idx], kernels[idx]], sigma=[sigmas[idx], sigmas[idx]])
+        
+    elif type == 'noise':
+        # gaussian noise: increase std (granularity)
+        stds = [0.05, 0.15, 0.30]
+        noise = torch.randn_like(images) * stds[intensity - 1]
+        # clamp clips pixel into valid image interval [0,1]
+        return torch.clamp(images + noise, 0.0, 1.0)
+        
+    elif type == 'contrast':
+        # reduces contrast by turning image more gray
+        factors = [0.5, 0.2, 0.05]
+        return TF.adjust_contrast(images, factors[intensity - 1])
+        
+    return images
+
+
+def stress_test(model, val_loader, device):
+    """
+    run evaluation through all kinds of image corruption and plot mAP degradation curve
+    """
+    model.eval()
+    
+    corrup_types = ['blur', 'noise', 'contrast']
+    intensities = [0, 1, 2, 3] # 0 = original, 1 = slight, 2 = medium, 3 = strong
+    
+    # map degradation dict
+    mAP_curves = {type: [] for type in corrup_types}
+    
+    print("Iniciando teste de estresse (Parte 6)")
+    
+    with torch.no_grad():
+        for type in corrup_types:
+            print(f"\nAvaliando degradação por: {type.upper()}")
+            
+            for intensity in intensities:
+                maps_current_intensity = []
+
+                # use trilha A dataloader that gives back images with answers
+                for images, masks_semantic, masks_instance_gt in val_loader:
+                    images = images.to(device)
+                    masks_gt_np = masks_instance_gt.cpu().numpy()
+
+                    # apply math corruption to image batch
+                    images_corrupted = corrupt_image(images, type, intensity)
+
+                    # run trilha A net in damaged image
+                    logits = model(images_corrupted)
+                    
+                    for i in range(images.size(0)):
+                        # post processing with watershed using net output
+                        pred_instance_mask = extract_instances_watershed(logits[i])
+                        real_instance_mask = masks_gt_np[i]
+
+                        # get real metrics
+                        mAP_img, _ = compute_instance_metrics(pred_instance_mask, real_instance_mask)
+                        maps_current_intensity.append(mAP_img)
+
+                # final mean of current intensity to the graphic
+                map_mean = np.mean(maps_current_intensity)
+                mAP_curves[type].append(map_mean)
+                print(f"  Nível {intensity} -> mAP: {map_mean:.4f}")
+                
+    # PLOT
+    plt.figure(figsize=(10, 6))
+    
+    cores = {'blur': 'blue', 'noise': 'red', 'contrast': 'green'}
+    labels = {'blur': 'Desfoque (Blur)', 'noise': 'Ruído Gaussiano', 'contrast': 'Baixo contrast'}
+    
+    for type in corrup_types:
+        plt.plot(intensities, mAP_curves[type], marker='o', color=cores[type], label=labels[type], linewidth=2.5)
+        
+    plt.title("Parte 6: Curva de Degradação do mAP sob Corrupções", fontsize=14, fontweight='bold')
+    plt.xlabel("intensity da Corrupção (0 = Imagem Original)", fontsize=12)
+    plt.ylabel("Precisão Média de Instâncias (mAP)", fontsize=12)
+    plt.xticks(intensities)
+    plt.ylim(0, 1.05)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.legend(fontsize=11)
+    
+    plt.show()
