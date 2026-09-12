@@ -201,3 +201,97 @@ def mosaic2x2(dataloader):
     # add back batch dim to pass to the net
     # [3, 256, 256] -> [1, 3, 256, 256]
     return mosaic_img.unsqueeze(0), mosaic_mask
+
+
+def tiles_inference_with_overlap(model, huge_img, cutting_points):
+    """
+    inference in tiles with overlap on borders, meaning objects are sliced
+    """
+    model.eval()
+    H, W = huge_img.shape[2], huge_img.shape[3]
+    
+    # empty canvas to glue results
+    final_mask = np.zeros((H, W), dtype=np.int32)
+    max_current_id = 0
+    
+    for y in cutting_points:
+        for x in cutting_points:
+            # cut 128x128 patch
+            patch = huge_img[:, :, y:y+128, x:x+128]
+
+            # go through net applying watershed
+            with torch.no_grad():
+                logits = model(patch)
+            patch_insts = extract_instances_watershed(logits[0])
+
+            # moves ids to avoid collapse with ellipses of previous patches
+            patch_insts_offset = patch_insts.copy()
+            foreground = patch_insts > 0
+            patch_insts_offset[foreground] += max_current_id
+            
+            if patch_insts.max() > 0:
+                max_current_id += patch_insts.max()
+
+            # glue overwriting whats already there
+            final_mask[y:y+128, x:x+128][foreground] = patch_insts_offset[foreground]
+            
+    return final_mask
+
+
+def tiles_inference_corrected(model, huge_img, cuttting_points):
+    """
+    Roda a inferência em tiles e aplica a correção lógica de fusão na borda.
+    """
+    model.eval()
+    H, W = huge_img.shape[2], huge_img.shape[3]
+    final_corrected_mask = np.zeros((H, W), dtype=np.int32)
+    max_current_id = 0
+    
+    for y in cuttting_points:
+        for x in cuttting_points:
+            patch = huge_img[:, :, y:y+128, x:x+128]
+            
+            with torch.no_grad():
+                logits = model(patch)
+            patch_insts = extract_instances_watershed(logits[0])
+            
+            patch_insts_offset = patch_insts.copy()
+            foreground = patch_insts > 0
+            patch_insts_offset[foreground] += max_current_id
+
+            # math fusion in overlap area
+            # look into area of global mosaic where patch will be glued
+            overlap_area = final_corrected_mask[y:y+128, x:x+128]
+
+            # get ellipses ids that net just found
+            ids_new = np.unique(patch_insts_offset[foreground])
+            
+            for id_n in ids_new:
+                # where is this new ellipse located?
+                pixels_new_id = (patch_insts_offset == id_n)
+
+                # which old ids are there just under it in mosaic?
+                ids_under_old = np.unique(overlap_area[pixels_new_id])
+                ids_under_old = ids_under_old[ids_under_old > 0] # Ignores bg
+                
+                for id_a in ids_under_old:
+                    pixels_id_old = (overlap_area == id_a)
+
+                    # intersection level between two ellipse pieces
+                    intersection = np.logical_and(pixels_new_id, pixels_id_old).sum()
+                    area_new = pixels_new_id.sum()
+
+                    # if they overlap in more than 10% of new area, consider them the same object
+                    if intersection / area_new > 0.10: 
+                        # merge instances: rename id new with id old
+                        patch_insts_offset[pixels_new_id] = id_a
+                        break # pair found, go to the next ellipse
+            
+            # updates ids countes
+            if patch_insts_offset.max() > max_current_id:
+                max_current_id = patch_insts_offset.max()
+
+            #glues the newly corrected ids to mosaic
+            final_corrected_mask[y:y+128, x:x+128][foreground] = patch_insts_offset[foreground]
+            
+    return final_corrected_mask
