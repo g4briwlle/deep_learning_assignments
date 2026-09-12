@@ -5,6 +5,7 @@ from skimage.segmentation import watershed
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision import models
 
 
@@ -31,12 +32,15 @@ class ResNetEncoder(nn.Module):
     """
     Reusable Residual encoder to attach to different decoders.
     """
-    def __init__(self):
+    def __init__(self, replace_stride_with_dilation: bool = True):
         super().__init__()
 
         # pre trained encoder
         # ResNet34 pre trained from imagenet
-        resnet = models.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
+        resnet = models.resnet34(
+            weights=models.ResNet34_Weights.IMAGENET1K_V1,
+            replace_stride_with_dilation=[False, False, True] if replace_stride_with_dilation else None
+        )
 
         # stem: entry Conv, BatchNorm e ReLU (reduces into H/2)
         self.stem = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)
@@ -126,5 +130,80 @@ class ResUNet34(ResNetEncoder):
         logits = self.out_conv(x)
         return logits
 
-    
+# --- Implenting DeepLab with ASPP over the same encoder ---------------
+class ASPPModule(nn.Module):
+    def __init__(self, in_channels, out_channels=256):
+        super().__init__()
+        # 1. 1x1 Convolution
+        self.conv1x1 = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        # 2. Atrous Convolutions (Rates 6, 12, 18 as per DeepLabv3)
+        self.conv_r6 = self._build_atrous_conv(in_channels, out_channels, rate=6)
+        self.conv_r12 = self._build_atrous_conv(in_channels, out_channels, rate=12)
+        self.conv_r18 = self._build_atrous_conv(in_channels, out_channels, rate=18)
 
+        # 3. Image Pooling (Global Average Pooling)
+        self.image_pool = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+        # 4. Final Projection
+        # 5 branches * 256 channels = 1280 input channels
+        self.project = nn.Sequential(
+            nn.Conv2d(5 * out_channels, out_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def _build_atrous_conv(self, in_channels, out_channels, rate):
+        return nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=rate, dilation=rate, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        b, c, h, w = x.shape
+        # Pass through parallel branches
+        feat1 = self.conv1x1(x)
+        feat2 = self.conv_r6(x)
+        feat3 = self.conv_r12(x)
+        feat4 = self.conv_r18(x)
+
+        # Image pooling needs upsampling back to feature map size
+        pool_feat = self.image_pool(x)
+        pool_feat = F.interpolate(pool_feat, size=(h, w), mode='bilinear', align_corners=False)
+
+        # Concatenate and project
+        out = torch.cat([feat1, feat2, feat3, feat4, pool_feat], dim=1)
+        return self.project(out)
+
+class DeepLabV3_ResNet34(ResNetEncoder):
+    def __init__(self, out_channels: int = 1):
+        super().__init__(replace_stride_with_dilation=True)
+
+        # ASPP Module that uses different rates
+        self.aspp = ASPPModule(in_channels=512, out_channels=256)
+        self.classifier = nn.Conv2d(256, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        h, w = x.shape[-2:]
+        
+        # Keeping the ResNet encoders
+        skip1 = self.stem(x)
+        skip2 = self.layer1(skip1)
+        skip3 = self.layer2(skip2)
+        skip4 = self.layer3(skip3)
+        bottleneck = self.layer4(skip4) 
+        
+        # Using aspp in the upsampling
+        aspp_out = self.aspp(bottleneck)
+        logits = self.classifier(aspp_out)
+        
+        return F.interpolate(logits, size=(h, w), mode='bilinear', align_corners=False)
