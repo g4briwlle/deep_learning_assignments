@@ -130,15 +130,41 @@ class SyntheticEllipseDatasetTrackA(Dataset):
         return img_tensor, semantic_tensor, instance_tensor
 
 
+def resize_and_pad(img, size, is_mask=False):
+    """
+    Resize keeping aspect ratio so the longer side == size, then pad with zeros
+    to a (size, size) square. Returns the padded array and a bool valid_mask
+    (True where the original image lives, False on the pad).
+
+    img: HWC (image) or HW (mask). Works for both.
+    """
+    H, W = img.shape[:2]
+    scale = size / max(H, W)
+    new_w, new_h = max(1, int(round(W * scale))), max(1, int(round(H * scale)))
+
+    interp = cv2.INTER_NEAREST if is_mask else cv2.INTER_LINEAR
+    resized = cv2.resize(img, (new_w, new_h), interpolation=interp)
+
+    if img.ndim == 3:
+        out = np.zeros((size, size, img.shape[2]), dtype=img.dtype)
+        out[:new_h, :new_w] = resized
+    else:
+        out = np.zeros((size, size), dtype=img.dtype)
+        out[:new_h, :new_w] = resized
+
+    valid = np.zeros((size, size), dtype=bool)
+    valid[:new_h, :new_w] = True
+
+    return out, valid
+
 DATA_ROOT_DIR = Path(__file__).resolve().parent.parent / 'data' / 'stage1_train'
 
 
 class DSB2018DatasetTrackA(Dataset):
-    def __init__(self, root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2, apply_resize: bool = True):
+    def __init__(self, root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2):
         self.root_dir = root_dir
         self.size = size
         self.border_thickness = border_thickness
-        self.apply_resize = apply_resize
 
         # Gather all subdirectories (each represents one sample)
         self.sample_dirs = [d for d in self.root_dir.iterdir() if d.is_dir()]
@@ -154,14 +180,14 @@ class DSB2018DatasetTrackA(Dataset):
         img = cv2.imread(str(img_path))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) # type: ignore
         
-        if self.apply_resize:
-            img = cv2.resize(img, (self.size, self.size), interpolation=cv2.INTER_LINEAR)
+        img, valid_mask = resize_and_pad(img, self.size, is_mask=False)
+        H, W = img.shape[:2]
 
         img = img.astype(np.float32) / 255.0
 
         # 2. Initialize the masks
-        instance_mask = np.zeros((self.size, self.size), dtype=np.int32)
-        semantic_mask = np.zeros((self.size, self.size), dtype=np.int32)
+        instance_mask = np.zeros((H, W), dtype=np.int32)
+        semantic_mask = np.zeros((H, W), dtype=np.int32)
 
         # 3. Process individual ground truth masks
         mask_paths = list((sample_dir / "masks").glob("*.png"))
@@ -169,8 +195,7 @@ class DSB2018DatasetTrackA(Dataset):
         for inst_id, mask_path in enumerate(mask_paths, start=1):
             mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
             
-            if self.apply_resize:
-                mask = cv2.resize(mask, (self.size, self.size), interpolation=cv2.INTER_NEAREST) # type: ignore
+            mask, _ = resize_and_pad(mask, self.size, is_mask=True)
 
             # Binarize to ensure strict 0 or 255 values
             _, binary_mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY) # type: ignore
@@ -200,19 +225,22 @@ class DSB2018DatasetTrackA(Dataset):
 
 # --- Otimizing data loading --------------------------------------------
 # Function to run once and create three .npy files with everything needed
-def build_cache(root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2, apply_resize: bool = True, out_dir="cache"):
+def build_cache(root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2, out_dir="cache"):
     out_dir = Path(out_dir); out_dir.mkdir(exist_ok=True)
     base = DSB2018DatasetTrackA(
         root_dir,
         size=size,
         border_thickness=border_thickness,
-        apply_resize=apply_resize
     )
 
     N = len(base)
-    imgs = np.empty((N, size, size, 3), dtype=np.uint8)
-    sem = np.empty((N, size, size),    dtype=np.uint8)
-    inst = np.empty((N, size, size),    dtype=np.int32)
+    x0, _, _ = base[0]
+    _, H, W = x0.shape # probe
+    print(f"caching {N} samples at {H}x{W}")
+
+    imgs = np.empty((N, H, W, 3), dtype=np.uint8)
+    sem  = np.empty((N, H, W),    dtype=np.uint8)
+    inst = np.empty((N, H, W),    dtype=np.int32)
 
     for i in range(N):
         x, s, m = base[i]
@@ -220,13 +248,10 @@ def build_cache(root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thicknes
         sem[i]  = s.numpy().astype(np.uint8)
         inst[i] = m.numpy()
 
-    np.save(out_dir / "images.npy", imgs)
+    np.save(out_dir / "images.npy",   imgs)
     np.save(out_dir / "semantic.npy", sem)
     np.save(out_dir / "instance.npy", inst)
-    print(
-        f"cached {N} samples, ",
-        f"{(imgs.nbytes + sem.nbytes + inst.nbytes) / 1e6:.1f} MB"
-    )
+    print(f"{(imgs.nbytes + sem.nbytes + inst.nbytes) / 1e6:.1f} MB written to {out_dir}")
 
 class DSB2018Cached(Dataset):
     def __init__(self, cache_dir="cache"):
@@ -243,7 +268,7 @@ class DSB2018Cached(Dataset):
         inst = torch.from_numpy(self.instances[idx])
         return img, sem, inst
 
-def get_train_test_dataloaders(data_images_size: int | None = None, batch_size: int = 16, use_cache: bool = False) -> Tuple[DataLoader, DataLoader]:
+def get_train_test_dataloaders(data_images_size: int = 256, batch_size: int = 16, use_cache: bool = False) -> Tuple[DataLoader, DataLoader]:
     """
     Builds (if asked to) the cache with the asked images size, loads it into
     memory with mmap and returns the optimized dataloaders.
@@ -265,10 +290,7 @@ def get_train_test_dataloaders(data_images_size: int | None = None, batch_size: 
     )    
     
     if not use_cache:
-        if data_images_size:
-            build_cache(size=data_images_size)
-        else:
-            build_cache(apply_resize=False)
+        build_cache(size=data_images_size)
         
     full_dataset = DSB2018Cached()
 
@@ -305,3 +327,6 @@ def get_train_test_dataloaders(data_images_size: int | None = None, batch_size: 
     )
     
     return train_loader, test_loader
+
+if __name__ == "__main__":
+    get_train_test_dataloaders(256)
