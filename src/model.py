@@ -165,10 +165,8 @@ if __name__ == "__main__":
     import torch.optim as optim
     import torch.nn as nn
 
-    from .dataset import *
-    from .metrics import *
-    from .model import *
-    from .train import *
+    from .dataset import get_train_test_dataloaders
+    from .train import train_model_track_a
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -188,11 +186,13 @@ if __name__ == "__main__":
 
     # Data prepping
     # Using new class for 3-classes data
-    train_dataset_part3_axis1 = SyntheticEllipseDatasetTrackA(n_samples=400, size=128)
-    val_dataset_part3_axis1 = SyntheticEllipseDatasetTrackA(n_samples=100, size=128)
+    # train_dataset_part3_axis1 = SyntheticEllipseDatasetTrackA(n_samples=400, size=128)
+    # val_dataset_part3_axis1 = SyntheticEllipseDatasetTrackA(n_samples=100, size=128)
 
-    train_loader_part3_axis1 = DataLoader(train_dataset_part3_axis1, batch_size=16, shuffle=True)
-    val_loader_part3_axis1 = DataLoader(val_dataset_part3_axis1, batch_size=16, shuffle=False)
+    # train_loader_part3_axis1 = DataLoader(train_dataset_part3_axis1, batch_size=16, shuffle=True)
+    # val_loader_part3_axis1 = DataLoader(val_dataset_part3_axis1, batch_size=16, shuffle=False)
+
+    train_loader_part3_axis1, test_loader_part3_axis1 = get_train_test_dataloaders(128)
 
     epochs = 5
 
@@ -201,7 +201,7 @@ if __name__ == "__main__":
         optimizer_part3_axis1,
         criterion_part3_axis1,
         train_loader_part3_axis1,
-        val_loader_part3_axis1,
+        test_loader_part3_axis1,
         device,
         epochs,
         'segnet_parte3_eixo3'
