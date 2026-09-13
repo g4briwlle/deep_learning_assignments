@@ -6,7 +6,53 @@ import torch.optim as optim
 import torch.nn as nn
 
 from .utils import extract_instances_watershed
-from .metrics import compute_instance_metrics
+from .metrics import compute_semantic_metrics, compute_instance_metrics
+
+
+def train_part_1_1(model, optimizer, criterion, train_loader, val_loader, device, epochs: int = 5):
+    for epoch in range(epochs):
+
+        # TRAINING FASE
+        model.train()
+        train_loss = 0.0
+
+        for images, semantic_masks, _ in train_loader:
+            images = images.to(device)
+
+            # converts instance mask to binary, 0 is background and 1 is the object
+            # unsqueeze(1) adds channels dimension [B, 1, H, W]
+            masks_binary = (semantic_masks > 0).float().unsqueeze(1).to(device)
+
+            optimizer.zero_grad()
+            logits = model(images)
+            loss = criterion(logits, masks_binary)
+
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+
+        # EVALUATION FASE reporting metrics
+        model.eval()
+        val_iou = 0.0
+        val_dice = 0.0
+
+        with torch.no_grad(): # stop learning fase
+            for images, semantic_masks, _ in val_loader:
+                images = images.to(device)
+                masks_binary = (semantic_masks > 0).float().unsqueeze(1).to(device)
+
+                logits = model(images)
+
+                # computing batch metrics
+                iou, dice = compute_semantic_metrics(logits, masks_binary)
+                val_iou += iou
+                val_dice += dice
+
+        # epoch mean
+        iou_final = val_iou / len(val_loader)
+        dice_final = val_dice / len(val_loader)
+
+        print(f"Epoch {epoch+1}/{epochs} | Loss Train: {train_loss/len(train_loader):.4f} | Val IoU: {iou_final:.4f} | Val Dice: {dice_final:.4f}")
 
 def train_model_track_a(
     model,
