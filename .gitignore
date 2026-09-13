@@ -5,4 +5,9 @@ archive.zip
 data
 data/
 
+# Personal prompt file
 prompt.md
+
+# Cached dataset
+cache
+cache/
