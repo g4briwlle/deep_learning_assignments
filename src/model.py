@@ -32,7 +32,7 @@ class DoubleConv(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, in_channels: int = 3):
+    def __init__(self, in_channels: int = 1):
         super().__init__()
 
         # Downsampling operation
@@ -46,6 +46,11 @@ class Encoder(nn.Module):
         self.bottleneck = DoubleConv(512, 1024)
 
 class UNet(Encoder):
+    """
+    Inherits the encoder and implements the UNet decoder, using skip connections
+    in the decoding transpose convolutions.
+    """
+
     def __init__(self, in_channels: int = 1, out_channels: int = 1):
         super().__init__(in_channels)
 
@@ -102,3 +107,102 @@ class UNet(Encoder):
         
         logits = self.out_conv(x)
         return logits
+
+# --- Implementing the max unpooling of SegNet -------------------------
+class SegNetAblation(Encoder):
+    """
+    Keeps the same encoder as the UNet and decodes using max unpooling.
+    """
+
+    def __init__(self, in_channels: int = 1, out_channels: int = 3):
+        super().__init__(in_channels)
+
+        # Override the inherited pool to return indices
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
+        # Unpooling layer
+        self.unpool = nn.MaxUnpool2d(kernel_size=2, stride=2)
+        
+        # Channel reduction convolutions (1x1) to match UNet concatenations
+        self.decoder_1 = DoubleConv(512, 256)
+        self.decoder_2 = DoubleConv(256, 128)
+        self.decoder_3 = DoubleConv(128, 64)
+        self.decoder_4 = DoubleConv(64, 32)
+        
+        self.out_conv = nn.Conv2d(32, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        # --- ENCODER ---
+        x = self.encoder_1(x)
+        x, idx1 = self.pool(x)
+        
+        x = self.encoder_2(x)
+        x, idx2 = self.pool(x)
+        
+        x = self.encoder_3(x)
+        x, idx3 = self.pool(x)
+        
+        x = self.encoder_4(x)
+        x, idx4 = self.pool(x)
+        
+        # --- DECODER ---
+        x = self.unpool(x, idx4)
+        x = self.decoder_1(x)
+        
+        x = self.unpool(x, idx3)
+        x = self.decoder_2(x)
+        
+        x = self.unpool(x, idx2)
+        x = self.decoder_3(x)
+        
+        x = self.unpool(x, idx1)
+        x = self.decoder_4(x)
+        
+        return self.out_conv(x)
+
+if __name__ == "__main__":
+    import torch
+    from torch.utils.data import DataLoader
+    import torch.optim as optim
+    import torch.nn as nn
+
+    from .dataset import *
+    from .metrics import *
+    from .model import *
+    from .train import *
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Setting up SegNet ablation model
+
+    # Model with 3 channels for the classes we need to predict:
+    # Class 0 - background
+    # Class 1 - inside
+    # Class 2 - border
+    model_part3_axis1 = SegNetAblation(in_channels=3, out_channels=3).to(device)
+
+    # Keeping the same optimizer, criterion and data as part 2
+    class_weights = torch.tensor([0.1, 0.3, 0.9], dtype=torch.float32).to(device)
+
+    criterion_part3_axis1 = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer_part3_axis1 = optim.Adam(model_part3_axis1.parameters(), lr=1e-3)
+
+    # Data prepping
+    # Using new class for 3-classes data
+    train_dataset_part3_axis1 = SyntheticEllipseDatasetTrackA(n_samples=400, size=128)
+    val_dataset_part3_axis1 = SyntheticEllipseDatasetTrackA(n_samples=100, size=128)
+
+    train_loader_part3_axis1 = DataLoader(train_dataset_part3_axis1, batch_size=16, shuffle=True)
+    val_loader_part3_axis1 = DataLoader(val_dataset_part3_axis1, batch_size=16, shuffle=False)
+
+    epochs = 5
+
+    train_model_track_a(
+        model_part3_axis1,
+        optimizer_part3_axis1,
+        criterion_part3_axis1,
+        train_loader_part3_axis1,
+        val_loader_part3_axis1,
+        device,
+        epochs,
+        'segnet_parte3_eixo3'
+    )
