@@ -51,7 +51,7 @@ class UNet(Encoder):
     in the decoding transpose convolutions.
     """
 
-    def __init__(self, in_channels: int = 1, out_channels: int = 1):
+    def __init__(self, in_channels: int = 3, out_channels: int = 1):
         super().__init__(in_channels)
 
         # Decoder's layers
@@ -114,7 +114,7 @@ class SegNetAblation(Encoder):
     Keeps the same encoder as the UNet and decodes using max unpooling.
     """
 
-    def __init__(self, in_channels: int = 1, out_channels: int = 3):
+    def __init__(self, in_channels: int = 3, out_channels: int = 3):
         super().__init__(in_channels)
 
         # Override the inherited pool to return indices
