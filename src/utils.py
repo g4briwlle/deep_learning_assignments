@@ -200,7 +200,7 @@ def mosaic2x2(dataloader):
     return mosaic_img.unsqueeze(0), mosaic_mask
 
 
-def tiles_inference_with_overlap(model, huge_img, cutting_points):
+def tiles_inference_with_overlap(model, huge_img, cutting_points_x, cutting_points_y, tile_size=128):
     """
     inference in tiles with overlap on borders, meaning objects are sliced
     """
@@ -211,10 +211,10 @@ def tiles_inference_with_overlap(model, huge_img, cutting_points):
     final_mask = np.zeros((H, W), dtype=np.int32)
     max_current_id = 0
     
-    for y in cutting_points:
-        for x in cutting_points:
-            # cut 128x128 patch
-            patch = huge_img[:, :, y:y+128, x:x+128]
+    for y in cutting_points_y:
+        for x in cutting_points_x:
+            # cut tile_sizextile_size patch
+            patch = huge_img[:, :, y:y+tile_size, x:x+tile_size]
 
             # go through net applying watershed
             with torch.no_grad():
@@ -230,12 +230,12 @@ def tiles_inference_with_overlap(model, huge_img, cutting_points):
                 max_current_id += patch_insts.max()
 
             # glue overwriting whats already there
-            final_mask[y:y+128, x:x+128][foreground] = patch_insts_offset[foreground]
+            final_mask[y:y+tile_size, x:x+tile_size][foreground] = patch_insts_offset[foreground]
             
     return final_mask
 
 
-def tiles_inference_corrected(model, huge_img, cuttting_points):
+def tiles_inference_corrected(model, huge_img, cuttting_points_x, cutting_points_y, tile_size=128):
     """
     Roda a inferência em tiles e aplica a correção lógica de fusão na borda.
     """
@@ -244,9 +244,9 @@ def tiles_inference_corrected(model, huge_img, cuttting_points):
     final_corrected_mask = np.zeros((H, W), dtype=np.int32)
     max_current_id = 0
     
-    for y in cuttting_points:
-        for x in cuttting_points:
-            patch = huge_img[:, :, y:y+128, x:x+128]
+    for y in cutting_points_y:
+        for x in cuttting_points_x:
+            patch = huge_img[:, :, y:y+tile_size, x:x+tile_size]
             
             with torch.no_grad():
                 logits = model(patch)
@@ -258,7 +258,7 @@ def tiles_inference_corrected(model, huge_img, cuttting_points):
 
             # math fusion in overlap area
             # look into area of global mosaic where patch will be glued
-            overlap_area = final_corrected_mask[y:y+128, x:x+128]
+            overlap_area = final_corrected_mask[y:y+tile_size, x:x+tile_size]
 
             # get ellipses ids that net just found
             ids_new = np.unique(patch_insts_offset[foreground])
@@ -289,7 +289,7 @@ def tiles_inference_corrected(model, huge_img, cuttting_points):
                 max_current_id = patch_insts_offset.max()
 
             #glues the newly corrected ids to mosaic
-            final_corrected_mask[y:y+128, x:x+128][foreground] = patch_insts_offset[foreground]
+            final_corrected_mask[y:y+tile_size, x:x+tile_size][foreground] = patch_insts_offset[foreground]
             
     return final_corrected_mask
 
