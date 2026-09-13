@@ -41,7 +41,7 @@ def plot_density_failure(model, val_loader, device):
 
     print("Evaluating images and grouping densities...")
     with torch.no_grad():
-        for images, masks_gt in val_loader:
+        for images, _, masks_gt in val_loader:
             images = images.to(device)
             masks_gt_np = masks_gt.cpu().numpy()
 
