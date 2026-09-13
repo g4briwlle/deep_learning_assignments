@@ -243,13 +243,13 @@ class DSB2018Cached(Dataset):
         inst = torch.from_numpy(self.instances[idx])
         return img, sem, inst
 
-def get_train_test_dataloaders(data_images_size: int | None = 128, batch_size: int = 16, use_cache: bool = False) -> Tuple[DataLoader, DataLoader]:
+def get_train_test_dataloaders(data_images_size: int | None = None, batch_size: int = 16, use_cache: bool = False) -> Tuple[DataLoader, DataLoader]:
     """
     Builds (if asked to) the cache with the asked images size, loads it into
     memory with mmap and returns the optimized dataloaders.
     
     Args:
-        data_images_size (int): Size of the images images. Get's passed to the `size` of the dataset, that resizes the images with cv2. If you want to use the original image, set to None. Default is 128.
+        data_images_size (int): Size of the images images. Get's passed to the `size` of the dataset, that resizes the images with cv2. If you want to use the original image, do not set. Default is None.
         batch_size (int): Batch size of the dataloaders.
         use_cache (bool): If True, do not build the cache, using the existing one. Use this if you're running this function more than once with the `data_images_size`.
     
