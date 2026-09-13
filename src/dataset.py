@@ -264,7 +264,7 @@ def get_train_test_dataloaders(data_images_size: int | None = None, batch_size: 
         category=UserWarning,
     )    
     
-    if use_cache:
+    if not use_cache:
         if data_images_size:
             build_cache(size=data_images_size)
         else:
