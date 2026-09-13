@@ -264,10 +264,11 @@ def get_train_test_dataloaders(data_images_size: int | None = 128, batch_size: i
         category=UserWarning,
     )    
     
-    if data_images_size:
-        build_cache(size=data_images_size)
-    else:
-        build_cache(apply_resize=False)
+    if use_cache:
+        if data_images_size:
+            build_cache(size=data_images_size)
+        else:
+            build_cache(apply_resize=False)
         
     full_dataset = DSB2018Cached()
 
