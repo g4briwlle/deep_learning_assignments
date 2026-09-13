@@ -198,11 +198,78 @@ class DSB2018DatasetTrackA(Dataset):
         return img_tensor, semantic_tensor, instance_tensor
 
 
-def get_train_test_dataloaders(size: int | None = 128) -> Tuple[DataLoader, DataLoader]:
-    if not size:
-        full_dataset = DSB2018DatasetTrackA(apply_resize=False)
+# --- Otimizing data loading --------------------------------------------
+# Function to run once and create three .npy files with everything needed
+def build_cache(root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2, apply_resize: bool = True, out_dir="cache"):
+    out_dir = Path(out_dir); out_dir.mkdir(exist_ok=True)
+    base = DSB2018DatasetTrackA(
+        root_dir,
+        size=size,
+        border_thickness=border_thickness,
+        apply_resize=apply_resize
+    )
+
+    N = len(base)
+    imgs = np.empty((N, size, size, 3), dtype=np.uint8)
+    sem = np.empty((N, size, size),    dtype=np.uint8)
+    inst = np.empty((N, size, size),    dtype=np.int32)
+
+    for i in range(N):
+        x, s, m = base[i]
+        imgs[i] = (x.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+        sem[i]  = s.numpy().astype(np.uint8)
+        inst[i] = m.numpy()
+
+    np.save(out_dir / "images.npy", imgs)
+    np.save(out_dir / "semantic.npy", sem)
+    np.save(out_dir / "instance.npy", inst)
+    print(
+        f"cached {N} samples, ",
+        f"{(imgs.nbytes + sem.nbytes + inst.nbytes) / 1e6:.1f} MB"
+    )
+
+class DSB2018Cached(Dataset):
+    def __init__(self, cache_dir="cache"):
+        self.images = np.load(Path(cache_dir) / "images.npy", mmap_mode="r")
+        self.semantics = np.load(Path(cache_dir) / "semantic.npy", mmap_mode="r")
+        self.instances = np.load(Path(cache_dir) / "instance.npy", mmap_mode="r")
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img  = torch.from_numpy(self.images[idx]).permute(2, 0, 1).float().div_(255.0) # HWC uint8 -> CHW float
+        sem  = torch.from_numpy(self.semantics[idx].astype(np.int64))
+        inst = torch.from_numpy(self.instances[idx])
+        return img, sem, inst
+
+def get_train_test_dataloaders(data_images_size: int | None = 128, batch_size: int = 16, use_cache: bool = False) -> Tuple[DataLoader, DataLoader]:
+    """
+    Builds (if asked to) the cache with the asked images size, loads it into
+    memory with mmap and returns the optimized dataloaders.
+    
+    Args:
+        data_images_size (int): Size of the images images. Get's passed to the `size` of the dataset, that resizes the images with cv2. If you want to use the original image, set to None. Default is 128.
+        batch_size (int): Batch size of the dataloaders.
+        use_cache (bool): If True, do not build the cache, using the existing one. Use this if you're running this function more than once with the `data_images_size`.
+    
+    Returns:
+        Tuple[DataLoader, DataLoader]: The optimized train and test dataloaders with numpy's mmap, respectively.
+    """
+
+    import warnings
+    warnings.filterwarnings(
+        "ignore",
+        message="The given NumPy array is not writable",
+        category=UserWarning,
+    )    
+    
+    if data_images_size:
+        build_cache(size=data_images_size)
     else:
-        full_dataset = DSB2018DatasetTrackA(size=size)
+        build_cache(apply_resize=False)
+        
+    full_dataset = DSB2018Cached()
 
     # Calculating split size
     total_samples = len(full_dataset)
@@ -219,17 +286,21 @@ def get_train_test_dataloaders(size: int | None = 128) -> Tuple[DataLoader, Data
     # DataLoaders
     train_loader = DataLoader(
         dataset=train_dataset,
-        batch_size=16,
+        batch_size=batch_size,
         shuffle=True,
-        num_workers=4,
-        pin_memory=True
+        num_workers=8,
+        pin_memory=True,
+        persistent_workers=True,
+        prefetch_factor=4
     )
     test_loader = DataLoader(
         dataset=test_dataset,
-        batch_size=16,
+        batch_size=batch_size,
         shuffle=False,
-        num_workers=4,
-        pin_memory=True
+        num_workers=8,
+        pin_memory=True,
+        persistent_workers=True,
+        prefetch_factor=4
     )
     
     return train_loader, test_loader
