@@ -17,6 +17,10 @@ Pedi ajuda pra entender o que alguns enunciados queriam dizer e o que era espera
 
 ## Daniel
 
-Criei um "gem" no Gemini Pro com o enunciado do trabalho e com os slides do conteúdo. 
+Criei um "gem" no Gemini Pro com o enunciado do trabalho e com os slides do conteúdo de Segmentação Semântica e, conforme o decorrer do trabalho, adicionei o código implementado ao contexto desse gem.
 
-Pedi ajuda pra escolher entre mudar a ResNet34 inicial para uma ResNet50 ou para voltar para a Unet na parte 3 no eixo 1, já que um dois dois era necessário para o ASPP e o max unpooling no contexto em que estavamos.
+Pedi ajuda para entender como estava a arquitetura do modelo e sua matemática por trás implementar o eixo 1 da parte 3 e percebi que a arquitetura inicial de ResUnet34 tinha algumas falhas estruturais que não permitiam a implementação de outro decoder, requisito para o eixo 1. Pedi ajuda para a implementação da nova arquitetura, de UNet com Encoder desacoplado.
+
+Pedi ajuda para criar um cache local dos dados, diminuindo a parte I/O bound de carga dos dados para diminuir o tempo gasto treinando o modelo colocando a carga apenas na GPU.
+
+Pedi ajuda com como fazer as transformações necessárias nas imagens para melhorar o modelo de acordo com o diagnóstico da parte 5.
