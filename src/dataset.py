@@ -6,6 +6,10 @@ from skimage.segmentation import watershed
 import torch
 from torch.utils.data import Dataset, random_split, DataLoader
 
+from PIL import Image
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 from pathlib import Path
 from typing import Tuple
 
@@ -161,10 +165,17 @@ DATA_ROOT_DIR = Path(__file__).resolve().parent.parent / 'data' / 'stage1_train'
 
 
 class DSB2018DatasetTrackA(Dataset):
-    def __init__(self, root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2):
+    transform = A.Compose([
+        A.ToGray(p=1.0), 
+        A.InvertImg(p=0.5), 
+        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
+    ])
+    
+    def __init__(self, root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2, transform_images: bool = False):
         self.root_dir = root_dir
         self.size = size
         self.border_thickness = border_thickness
+        self.transform_images = transform_images
 
         # Gather all subdirectories (each represents one sample)
         self.sample_dirs = [d for d in self.root_dir.iterdir() if d.is_dir()]
@@ -180,7 +191,12 @@ class DSB2018DatasetTrackA(Dataset):
         img = cv2.imread(str(img_path))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) # type: ignore
         
-        img, valid_mask = resize_and_pad(img, self.size, is_mask=False)
+        # Apply the modality shift augmentations
+        if self.transform_images:
+            augmented = self.transform(image=img)
+            img = augmented["image"]
+        
+        img, _ = resize_and_pad(img, self.size, is_mask=False)
         H, W = img.shape[:2]
 
         img = img.astype(np.float32) / 255.0
@@ -225,12 +241,19 @@ class DSB2018DatasetTrackA(Dataset):
 
 # --- Otimizing data loading --------------------------------------------
 # Function to run once and create three .npy files with everything needed
-def build_cache(root_dir: Path = DATA_ROOT_DIR, size: int = 128, border_thickness: int = 2, out_dir="cache"):
+def build_cache(
+    root_dir: Path = DATA_ROOT_DIR,
+    size: int = 128,
+    border_thickness: int = 2,
+    out_dir="cache",
+    transform_images: bool = False,
+):
     out_dir = Path(out_dir); out_dir.mkdir(exist_ok=True)
     base = DSB2018DatasetTrackA(
         root_dir,
         size=size,
         border_thickness=border_thickness,
+        transform_images=transform_images
     )
 
     N = len(base)
@@ -268,7 +291,13 @@ class DSB2018Cached(Dataset):
         inst = torch.from_numpy(self.instances[idx])
         return img, sem, inst
 
-def get_train_test_dataloaders(data_images_size: int = 256, batch_size: int = 16, use_cache: bool = False) -> Tuple[DataLoader, DataLoader]:
+def get_train_test_dataloaders(
+    cache_dir: Path,
+    data_images_size: int = 256,
+    batch_size: int = 16,
+    use_cache: bool = False,
+    transform_images: bool = False
+) -> Tuple[DataLoader, DataLoader]:
     """
     Builds (if asked to) the cache with the asked images size, loads it into
     memory with mmap and returns the optimized dataloaders.
@@ -290,7 +319,7 @@ def get_train_test_dataloaders(data_images_size: int = 256, batch_size: int = 16
     )    
     
     if not use_cache:
-        build_cache(size=data_images_size)
+        build_cache(size=data_images_size, out_dir=cache_dir, transform_images=transform_images)
         
     full_dataset = DSB2018Cached()
 
@@ -329,4 +358,6 @@ def get_train_test_dataloaders(data_images_size: int = 256, batch_size: int = 16
     return train_loader, test_loader
 
 if __name__ == "__main__":
-    get_train_test_dataloaders(256)
+    get_train_test_dataloaders('cache_128', 128)
+    get_train_test_dataloaders('cache_256', 256)
+    get_train_test_dataloaders('cache_256_transform', 256, transform_images=True)
