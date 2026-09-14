@@ -175,7 +175,14 @@ if __name__ == "__main__":
     
     import sys
 
-    model_name = sys.argv[1]
+    try:
+        model_name = sys.argv[1]
+    except Exception:
+        model_name = None
 
-    model_selector = ModelSelector(model_name)
+    if not model_name:
+        model_selector = ModelSelector()
+    else:
+        model_selector = ModelSelector(model_name)
+
     model_selector.run_eval()
