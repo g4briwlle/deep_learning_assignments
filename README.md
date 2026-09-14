@@ -1,10 +1,25 @@
+# Ambiente
+
+Crie o ambiente virtual e baixe os pacotes como preferir. Recomendamos o uso do pacote uv:
+
+```bash
+pip install uv
+uv sync
+```
+
+ele baixará as bibliotecas de acordo com o arquivo `pyproject.toml`, mas baixar as dependências com
+
+```bash
+pip install -r requirements.txt
+```
+
+também deve funcionar
+
 # Checkpoints
 
 Os pesos dos modelos treinados estão disponíveis na raíz do repositório, com nomes descritivos de qual parte do assingment o arquivo `.pth` se refere.
 
 # Comando para avaliar o modelo
-
-Tendo o repositório clonado, crie e ative um ambiente virtual e baixe todos os pacotes presentes no `pyproject.toml` como preferir.
 
 Rode o arquivo eval_network da seguinte maneira para testar o modelo final (o implementando na parte 5):
 
