@@ -168,6 +168,11 @@ class ModelSelector:
         return self.model
 
 if __name__ == "__main__":
+    if not Path('cache_256').exists():
+        get_train_test_dataloaders('cache_256')
+    if not Path('cache_256_transform').exists():
+        get_train_test_dataloaders('cache_256_transform')
+    
     import sys
 
     model_name = sys.argv[1]
