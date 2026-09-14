@@ -21,6 +21,8 @@ from src.train import (
     train_part_1_1,
     train_model_track_a
 )
+from src.dataset import get_train_test_dataloaders
+from src.eval import *
 
 # --- Initializing device ------------------------------------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -50,8 +52,16 @@ class ModelSelector:
         self.criterion = None
         self.optimizer = None
 
+        self.train_loader = None
+        self.val_loader = None
+
         print("=" * 50)
         print(f"Instantiating model {self.model_name}")
+
+        if self.model_name != 'unet_final':
+            self.train_loader, self.val_loader = get_train_test_dataloaders('cache_256_transform', use_cache=True)
+        else:
+            self.train_loader, self.val_loader = get_train_test_dataloaders('cache_256', use_cache=True)
 
         if self.model_name == 'unet_part1':
             # path to state_dict
@@ -111,13 +121,31 @@ class ModelSelector:
             print("|- Instance segmentation strategy: Watershed")
 
         elif self.model_name == 'unet_final':
-            raise NotImplementedError("Model of part 5 not implemented yet")
+            self.model_state_dict_path = saved_models_base_path / 'unet_parte5_trackA_transformacao.pth'
+
+            self.model = UNet(in_channels=3, out_channels=3).to(device)
+            
+            # Wheighted loss function in training
+            class_weights = torch.tensor([0.1, 0.3, 0.9], dtype=torch.float32).to(device)
+            self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+            self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+
+            print("Model architecture:")
+            print("|- UNet")
+            print("|- 3 input channels")
+            print("|- 3 output channels")
+            print("|- Loss function: Weighted CE, weights [0.1, 0.3, 0.9]")
+            print("|- Optimizer: Adam, Learning Rate: 1e-3")
+            print("|- Instance segmentation strategy: Watershed")
 
         print(f"Loading weights from file: {self.model_state_dict_path.name}")
 
         # input memory of saved weigths
-        # self.model.load_state_dict(torch.load(self.model_state_dict_path, weights_only=True, map_location=torch.device('cpu')))
-        self.model.load_state_dict(torch.load(self.model_state_dict_path, weights_only=True))
+        if device == 'cpu':
+            self.model.load_state_dict(torch.load(self.model_state_dict_path, weights_only=True))
+        else:
+            self.model.load_state_dict(torch.load(self.model_state_dict_path, weights_only=True, map_location=torch.device('cpu')))
         print(f"Succesfully recovered model {self.model_name}")
 
     def __init__(self, model_name: model_name_literal = 'unet_final'):
@@ -129,6 +157,12 @@ class ModelSelector:
 
         self._set_model()
 
+
+    def run_eval(self):
+        if self.model_name == 'unet_part1':
+            part1_eval(self.model, self.val_loader)
+        else:
+            part2_eval(self.model, self.val_loader)
     
     def get_model(self) -> nn.Module:
         return self.model
@@ -138,4 +172,5 @@ if __name__ == "__main__":
 
     model_name = sys.argv[1]
 
-    ModelSelector(model_name)
+    model_selector = ModelSelector(model_name)
+    model_selector.run_eval()
